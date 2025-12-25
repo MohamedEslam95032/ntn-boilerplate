@@ -5,9 +5,9 @@ echo "▶ Starting Coonex WordPress Init Script"
 
 WP_PATH="/var/www/html"
 
-# -----------------------------
-# Helper: wait for DB
-# -----------------------------
+# --------------------------------------------------
+# Helper: wait for database
+# --------------------------------------------------
 wait_for_db() {
   local host="${WORDPRESS_DB_HOST:-mysql}"
   local user="${WORDPRESS_DB_USER:-root}"
@@ -15,6 +15,7 @@ wait_for_db() {
   local db="${WORDPRESS_DB_NAME:-wordpress}"
 
   echo "⏳ Waiting for database (host=$host, db=$db)..."
+
   for i in {1..60}; do
     if mariadb-admin ping -h"$host" -u"$user" -p"$pass" --silent >/dev/null 2>&1; then
       echo "✅ Database is reachable"
@@ -22,39 +23,41 @@ wait_for_db() {
     fi
     sleep 1
   done
+
   echo "❌ Database not reachable after 60s"
-  return 1
+  exit 1
 }
 
-# -----------------------------
-# Ensure WP core exists
-# -----------------------------
+# --------------------------------------------------
+# Ensure WordPress core exists
+# --------------------------------------------------
 if [ ! -f "$WP_PATH/wp-settings.php" ]; then
   echo "▶ Copying WordPress core to $WP_PATH"
-  rsync -a /usr/src/wordpress/ "$WP_PATH"/ || true
+  cp -a /usr/src/wordpress/. "$WP_PATH"/
+  chown -R www-data:www-data "$WP_PATH"
 fi
 
 cd "$WP_PATH"
 
-# -----------------------------
+# --------------------------------------------------
 # Ensure wp-config.php exists
-# -----------------------------
+# --------------------------------------------------
 if [ ! -f "$WP_PATH/wp-config.php" ]; then
   echo "▶ Creating wp-config.php"
   cp wp-config-sample.php wp-config.php
 fi
 
-# -----------------------------
-# Wait for DB before wp-cli ops
-# -----------------------------
+# --------------------------------------------------
+# Wait for DB before wp-cli operations
+# --------------------------------------------------
 wait_for_db
 
-# -----------------------------
+# --------------------------------------------------
 # Detect WP_URL
-# -----------------------------
+# --------------------------------------------------
 WP_URL="${WP_URL:-}"
+
 if [ -z "$WP_URL" ]; then
-  # fallback: try common proxy vars (Coolify / Traefik / etc.)
   if [ -n "${COOLIFY_URL:-}" ]; then
     WP_URL="$COOLIFY_URL"
   elif [ -n "${COOLIFY_FQDN:-}" ]; then
@@ -63,24 +66,24 @@ if [ -z "$WP_URL" ]; then
 fi
 
 if [ -z "$WP_URL" ]; then
-  echo "⚠️ WP_URL is empty. Site URL won't be forced from ENV."
+  echo "⚠️ WP_URL is empty. Site URL will not be forced."
 else
   echo "✅ WP_URL=$WP_URL"
 fi
 
-# -----------------------------
-# Install WP if not installed
-# -----------------------------
+# --------------------------------------------------
+# Install WordPress if not installed
+# --------------------------------------------------
 if ! wp core is-installed --allow-root >/dev/null 2>&1; then
   echo "▶ WordPress not installed. Running wp core install..."
 
   ADMIN_USER="${WP_ADMIN_USER:-admin}"
   ADMIN_PASS="${WP_ADMIN_PASSWORD:-Admin@123456}"
   ADMIN_EMAIL="${WP_ADMIN_EMAIL:-admin@example.com}"
-  SITE_TITLE="${WP_SITE_TITLE:-Coonex WP}"
+  SITE_TITLE="${WP_SITE_TITLE:-Coonex CMS}"
 
   if [ -z "$WP_URL" ]; then
-    echo "❌ Cannot install without WP_URL. Set WP_URL env."
+    echo "❌ Cannot install WordPress without WP_URL"
     exit 1
   fi
 
@@ -93,23 +96,23 @@ if ! wp core is-installed --allow-root >/dev/null 2>&1; then
     --skip-email \
     --allow-root
 
-  echo "✅ WordPress installed"
+  echo "✅ WordPress installed successfully"
 else
   echo "ℹ WordPress already installed"
 fi
 
-# -----------------------------
-# Enforce home/siteurl in DB (important when cloning)
-# -----------------------------
+# --------------------------------------------------
+# Enforce home & siteurl in database
+# --------------------------------------------------
 if [ -n "$WP_URL" ]; then
-  echo "▶ Enforcing home/siteurl in database"
+  echo "▶ Enforcing home & siteurl in database"
   wp option update home "$WP_URL" --allow-root || true
   wp option update siteurl "$WP_URL" --allow-root || true
 fi
 
-# -----------------------------
+# --------------------------------------------------
 # Ensure admin user exists (idempotent)
-# -----------------------------
+# --------------------------------------------------
 if [ -n "${WP_ADMIN_EMAIL:-}" ]; then
   ADMIN_USER="${WP_ADMIN_USER:-admin}"
   ADMIN_PASS="${WP_ADMIN_PASSWORD:-Admin@123456}"
